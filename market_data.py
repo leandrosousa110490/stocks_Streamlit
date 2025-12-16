@@ -691,6 +691,23 @@ SECTORS = {
         {"ticker": "TJX", "name": "TJX Companies"},
         {"ticker": "EL", "name": "Estee Lauder"},
         {"ticker": "CL", "name": "Colgate-Palmolive"}
+    ],
+    "Travel & Aviation": [
+        {"ticker": "DAL", "name": "Delta Air Lines"},
+        {"ticker": "UAL", "name": "United Airlines"},
+        {"ticker": "AAL", "name": "American Airlines"},
+        {"ticker": "LUV", "name": "Southwest Airlines"},
+        {"ticker": "BA", "name": "Boeing Co."},
+        {"ticker": "AIR.PA", "name": "Airbus SE"},
+        {"ticker": "BKNG", "name": "Booking Holdings"},
+        {"ticker": "ABNB", "name": "Airbnb Inc."},
+        {"ticker": "MAR", "name": "Marriott Int."},
+        {"ticker": "RCL", "name": "Royal Caribbean"},
+        {"ticker": "CCL", "name": "Carnival Corp"},
+        {"ticker": "RYAAY", "name": "Ryanair Holdings"},
+        {"ticker": "IAG.L", "name": "Intl Airlines Group"},
+        {"ticker": "EZJ.L", "name": "easyJet"},
+        {"ticker": "LHA.DE", "name": "Lufthansa"}
     ]
 }
 
@@ -728,7 +745,15 @@ def search_sector(query):
         "retail": "Consumer & Retail",
         "shop": "Consumer & Retail",
         "store": "Consumer & Retail",
-        "food": "Consumer & Retail"
+        "food": "Consumer & Retail",
+        "airline": "Travel & Aviation",
+        "flight": "Travel & Aviation",
+        "plane": "Travel & Aviation",
+        "aviation": "Travel & Aviation",
+        "travel": "Travel & Aviation",
+        "hotel": "Travel & Aviation",
+        "cruise": "Travel & Aviation",
+        "trip": "Travel & Aviation"
     }
     
     # Check for direct key match
