@@ -256,13 +256,9 @@ with tab1:
                 st.session_state["timeline_ticker"] = ticker
                 st.session_state["timeline_quick"] = "1 Year"
                 st.session_state["timeline_quick_applied"] = None
+                st.session_state["date_range_slider"] = (max(min_date, max_date - timedelta(days=365)), max_date)
 
-            selected_quick = quick_slot.selectbox(
-                "Quick Range",
-                quick_options,
-                index=quick_options.index(st.session_state.get("timeline_quick", "1 Year")),
-                key="timeline_quick",
-            )
+            selected_quick = quick_slot.selectbox("Quick Range", quick_options, key="timeline_quick")
 
             quick_days = {
                 "1 Month": 30,
@@ -273,6 +269,14 @@ with tab1:
                 "10 Years": 3650,
                 "Lifetime": None,
             }
+
+            if "date_range_slider" not in st.session_state:
+                days = quick_days.get(selected_quick, 365)
+                if days is None:
+                    start_default = min_date
+                else:
+                    start_default = max(min_date, max_date - timedelta(days=days))
+                st.session_state["date_range_slider"] = (start_default, max_date)
 
             if st.session_state.get("timeline_quick_applied") != selected_quick:
                 days = quick_days.get(selected_quick)
@@ -287,7 +291,6 @@ with tab1:
                 "Select Date Range",
                 min_value=min_date,
                 max_value=max_date,
-                value=st.session_state.get("date_range_slider", (min_date, max_date)),
                 key="date_range_slider",
             )
 
