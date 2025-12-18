@@ -1,6 +1,6 @@
 streamlit
 pandas
 yfinance
-plotly
 duckdb
 polars
+altair
