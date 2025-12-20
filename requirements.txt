@@ -4,3 +4,4 @@ yfinance
 duckdb
 polars
 altair
+torch

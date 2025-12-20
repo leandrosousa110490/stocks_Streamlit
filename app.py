@@ -8,6 +8,13 @@ import altair as alt
 import yfinance as yf
 from datetime import datetime, date, timedelta
 
+try:
+    import torch
+    import torch.nn as nn
+except Exception:
+    torch = None
+    nn = None
+
 # Initialize DB
 dm.init_db()
 
@@ -44,6 +51,96 @@ def _format_percent(value, digits=2):
         return f"{v * 100:.{digits}f}%"
     except Exception:
         return "-"
+
+
+def _torch_available():
+    return torch is not None and nn is not None
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _forecast_close_pytorch(close_values, horizon, lookback=30, epochs=250, lr=1e-2, seed=7):
+    if torch is None or nn is None:
+        return None
+
+    series = np.asarray(close_values, dtype=np.float32)
+    series = series[np.isfinite(series)]
+    if series.size < max(lookback + 5, 25):
+        return None
+
+    lookback = int(min(max(5, lookback), series.size - 2))
+    horizon = int(max(1, horizon))
+
+    mean = float(series.mean())
+    std = float(series.std())
+    if not np.isfinite(std) or std == 0:
+        return [float(series[-1])] * horizon
+
+    norm = (series - mean) / std
+
+    X = []
+    y = []
+    for i in range(lookback, norm.size):
+        X.append(norm[i - lookback : i])
+        y.append(norm[i])
+
+    X = np.stack(X, axis=0)
+    y = np.asarray(y, dtype=np.float32).reshape(-1, 1)
+
+    torch.manual_seed(seed)
+    device = torch.device("cpu")
+
+    X_t = torch.from_numpy(X).to(device)
+    y_t = torch.from_numpy(y).to(device)
+
+    model = nn.Sequential(
+        nn.Linear(lookback, 64),
+        nn.ReLU(),
+        nn.Linear(64, 1),
+    ).to(device)
+
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    loss_fn = nn.MSELoss()
+
+    best_loss = float("inf")
+    best_state = None
+    patience = 20
+    patience_left = patience
+
+    for _ in range(int(max(50, epochs))):
+        model.train()
+        opt.zero_grad(set_to_none=True)
+        pred = model(X_t)
+        loss = loss_fn(pred, y_t)
+        loss.backward()
+        opt.step()
+
+        l = float(loss.detach().cpu().item())
+        if l + 1e-6 < best_loss:
+            best_loss = l
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            patience_left = patience
+        else:
+            patience_left -= 1
+            if patience_left <= 0:
+                break
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
+
+    model.eval()
+    window = norm[-lookback:].astype(np.float32).copy()
+    preds = []
+    with torch.no_grad():
+        for _ in range(horizon):
+            x = torch.from_numpy(window.reshape(1, -1)).to(device)
+            yhat = float(model(x).cpu().numpy().reshape(-1)[0])
+            preds.append(yhat)
+            window = np.roll(window, -1)
+            window[-1] = yhat
+
+    preds = (np.asarray(preds, dtype=np.float32) * std) + mean
+    preds = np.where(np.isfinite(preds), preds, series[-1])
+    return [float(x) for x in preds.tolist()]
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -440,6 +537,54 @@ with tab1:
                     chart = price_chart
 
                 st.altair_chart(chart, use_container_width=True)
+
+                with st.expander("Forecast & Signals", expanded=True):
+                    if not _torch_available():
+                        st.error('PyTorch is not available. Install `torch` to enable forecasting.')
+                    else:
+                        short_horizon = 5
+                        long_horizon = 60
+                        close_values = plot_data["Close"].astype(float).to_numpy()
+                        preds = _forecast_close_pytorch(tuple(close_values.tolist()), horizon=long_horizon)
+
+                        if preds is None:
+                            st.warning("Not enough data in the selected range to build a forecast.")
+                        else:
+                            current_close = float(close_values[-1])
+                            pred_short = float(preds[short_horizon - 1])
+                            pred_long = float(preds[-1])
+
+                            short_signal = "Buy" if pred_short >= current_close else "Sell"
+                            long_signal = "Buy" if pred_long >= current_close else "Sell"
+
+                            col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+                            with col_f1:
+                                st.metric("Current Close", f"${current_close:.2f}")
+                            with col_f2:
+                                st.metric(f"{short_horizon}D Forecast", f"${pred_short:.2f}", delta=f"{((pred_short - current_close) / current_close) * 100:.2f}%")
+                            with col_f3:
+                                st.metric(f"{long_horizon}D Forecast", f"${pred_long:.2f}", delta=f"{((pred_long - current_close) / current_close) * 100:.2f}%")
+                            with col_f4:
+                                st.metric("Signals", f"Short: {short_signal} | Long: {long_signal}")
+
+                            last_date = pd.to_datetime(plot_data["Date"].max())
+                            future_dates = pd.bdate_range(last_date + pd.Timedelta(days=1), periods=long_horizon)
+                            forecast_df = pd.DataFrame({"Date": future_dates, "Close": preds, "Series": "Forecast"})
+                            history_df = plot_data[["Date", "Close"]].copy()
+                            history_df["Series"] = "History"
+                            combo_df = pd.concat([history_df, forecast_df], ignore_index=True)
+
+                            forecast_chart = (
+                                alt.Chart(combo_df)
+                                .mark_line()
+                                .encode(
+                                    x=alt.X("Date:T", title=None),
+                                    y=alt.Y("Close:Q", title="Close"),
+                                    color=alt.Color("Series:N", scale=alt.Scale(domain=["History", "Forecast"], range=["#1f77b4", "#7f7f7f"])),
+                                )
+                                .properties(height=260)
+                            )
+                            st.altair_chart(forecast_chart, use_container_width=True)
                 
                 # Stats section
                 with st.expander("See Summary Statistics"):
